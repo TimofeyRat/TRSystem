@@ -1,4 +1,6 @@
 #include "keyboard_map.h"
+#include "helpFile.h"
+#include "commands.h"
 
 /* there are 25 lines each of 80 columns; each element takes 2 bytes */
 #define LINES 25
@@ -12,19 +14,17 @@
 #define INTERRUPT_GATE 0x8e
 #define KERNEL_CODE_SEGMENT_OFFSET 0x08
 
-#define ENTER_KEY_CODE 0x1C
-#define BACKSPACE_KEY_CODE 0x0E
-
 extern unsigned char keyboard_map[128];
 extern void keyboard_handler(void);
 extern char read_port(unsigned short port);
 extern void write_port(unsigned short port, unsigned char data);
 extern void load_idt(unsigned long *idt_ptr);
+extern void read_disk();
 
 /* current cursor location */
 unsigned int current_loc = 0;
 /* video memory begins at address 0xb8000 */
-char *vidptr = (char*)0xb8000;
+string vidptr = (string)0xb8000;
 
 struct IDT_entry {
 	unsigned short int offset_lowerbits;
@@ -95,7 +95,7 @@ void kb_init(void)
 	write_port(0x21 , 0xFD);
 }
 
-void kprint(const char *str)
+void kprint(const string str)
 {
 	unsigned int i = 0;
 	while (str[i] != '\0') {
@@ -119,10 +119,15 @@ void clear_screen(void)
 	}
 }
 
+int useCapsLock = 0;
+
 void keyboard_handler_main(void)
 {
 	unsigned char status;
 	char keycode;
+
+	string input;
+	short commandSize = 0;
 
 	/* write EOI */
 	write_port(0x20, 0x20);
@@ -134,18 +139,32 @@ void keyboard_handler_main(void)
 		if(keycode < 0) {
 			return;
 		}
-
-		if (keycode == ENTER_KEY_CODE) {
+		else if (keycode == ENTER_KEY_CODE) {
 			if (current_loc >= SCREENSIZE - COLUMNS_IN_LINE * BYTES_FOR_EACH_ELEMENT)
 			{
 				clear_screen();
 				current_loc = 0;
 				kprint("/:");
+				input = "";
+				commandSize = 0;
 			}
 			else
 			{
+				if (input == commands[0])
+				{
+					clear_screen();
+				}
+				else
+				{
+					kprint_newline();
+					kprint("Can't find the command named ");
+					kprint(input);
+					kprint(".");
+				}
 				kprint_newline();
 				kprint("/:");
+				input = "";
+				commandSize = 0;
 			}
 			return;
 		}
@@ -159,26 +178,45 @@ void keyboard_handler_main(void)
 			}
 			return;
 		}
+		else if (keycode == LEFTSHIFT_KEY_CODE) {
+
+		}
+		else if (keycode == CAPSLOCK_KEY_CODE || keycode == LEFTSHIFT_KEY_CODE) {
+			if (useCapsLock) { useCapsLock = 1; }
+			else if (useCapsLock == 1) { useCapsLock = 0; }
+			else useCapsLock = 0;
+		}
 		else
 		{
-			vidptr[current_loc++] = keyboard_map[(unsigned char) keycode];
-			vidptr[current_loc++] = 0x07;
+			if (useCapsLock == 0)
+			{
+				vidptr[current_loc++] = keyboard_map[(unsigned char) keycode];
+				vidptr[current_loc++] = 0x07;
+				commandSize++;
+				input[commandSize] = keyboard_map[(unsigned char) keycode];
+			}
+			if (useCapsLock == 1)
+			{
+				vidptr[current_loc++] = keyboard_map2[(unsigned char) keycode];
+				vidptr[current_loc++] = 0x07;
+				commandSize++;
+				input[commandSize] = keyboard_map2[(unsigned char) keycode];
+			}
 		}
 	}
 }
 
 void kmain(void)
 {
-	const char *str = "TRSys has been started.";
+	const string str = "TRSys has been started.";
 	clear_screen();
+
 	kprint(str);
 	kprint_newline();
 	kprint("/:");
 
 	idt_init();
 	kb_init();
-
-	
 
 	while (1);
 }
